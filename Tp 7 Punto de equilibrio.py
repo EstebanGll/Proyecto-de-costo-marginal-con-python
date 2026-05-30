@@ -33,13 +33,11 @@ costo_tela_por_remera = costo_tela_por_metro * consumo_tela_por_remera
 
 impuestos_por_remera = precio_venta * impuestos_pct
 
-costo_variable_unitario = (
-    costo_tela_por_remera
-    + insumos_estampa
-    + incentivo_operarios
-    + consumo_electrico
-    + impuestos_por_remera
-)
+lista_costo_variable_unitario = [ costo_tela_por_remera, insumos_estampa, incentivo_operarios, consumo_electrico, impuestos_por_remera]
+def costos_variables_unitarios(lista_costos):
+    return sum(lista_costos)
+costo_variable_unitario= costos_variables_unitarios(lista_costo_variable_unitario)
+
 
 costos_fijos = alquiler + amortizaciones + sueldos
 
@@ -62,9 +60,13 @@ cantidad_utilidad = (costos_fijos + utilidad_deseada) / margen_contribucion_unit
 # PV*Q - 1,2*CVu*Q = 1,2*CF
 # Q = 1,2*CF / (PV - 1,2*CVu)
 
-cantidad_utilidad_20_costos = (1.2 * costos_fijos) / (
-    precio_venta - 1.2 * costo_variable_unitario
-)
+def calcular_utilidad_porcentaje_ingresado(precio_venta ,costos_fijos ,costo_variable_unitario, utilidad):
+    if utilidad < 100:
+        return "valor ingresado fuera de rango"
+    else:
+        return ((1+utilidad/100) * costos_fijos) / (precio_venta - (1 + utilidad/100) * costo_variable_unitario)
+
+cantidad_utilidad_20_costos = calcular_utilidad_porcentaje_ingresado(precio_venta ,costos_fijos ,costo_variable_unitario, 20)
 
 # =========================
 # TABLA DE RESULTADOS
