@@ -1,6 +1,5 @@
 """
 Aplicación de Escritorio - Punto de Equilibrio Económico
-Desarrollada con PySide6 + Matplotlib
 """
 
 import sys
@@ -96,36 +95,60 @@ EJEMPLOS = {
 # =============================================================================
 
 def calcular_equilibrio(datos: dict) -> dict:
+    """
+        Toma la estructura de cada ejemplo y realiza los calculos para obtener el punto de equilibrio.
+        Parametro:
+            datos (dict[dict]) lista de costos de los insumos con una breve descripcion de cada caso
+        Retorno:
+        dic: diccionario con los calculos obtenidos de cada ejemplo
+    """
     pv  = datos["precio_venta"]
-    cvs = datos["costos_variables"]
-    cfs = datos["costos_fijos"]
+    cvs = datos["costos_variables"] # diccionario de costos unitarios
+    cfs = datos["costos_fijos"] # diccionario de costos fijos
     vp  = datos["ventas_presupuestadas"]
     ud  = datos["utilidad_deseada"]
     up  = datos["utilidad_pct_costos"]
 
+    # costo variable unitario
     cvu          = sum(cvs.values())
+    # costos fijos
     cf           = sum(cfs.values())
+    # margen de contribucion unitario
     mcu          = pv - cvu
+    # porcentaje de margen de contribucion unitario
     mcu_pct      = mcu / pv
+    # cantidad en equilibrio
     qe           = cf / mcu
+    # ventas en equilibrio
     ve           = qe * pv
+    # margen de seguridad por unidades
     ms_u         = vp - qe
+    # porcentaje de margen de seguridad
     ms_pct       = ms_u / vp if vp else 0
+    
 
     # Punto de cierre (sin amortizaciones)
-    amort        = cfs.get("Amortizaciones", cfs.get("Amortización horno",
-                   cfs.get("Amortiz. impresoras", 0)))
+    amort        = cfs.get("Amortizaciones", 
+                           cfs.get("Amortización horno", 
+                                   cfs.get("Amortiz. impresoras", 0)
+                                )
+                        )
+
     punto_cierre = (cf - amort) / mcu
 
     # Cantidad para utilidad fija
     q_ud = (cf + ud) / mcu
 
+
     # Cantidad para utilidad % sobre costos
     # PV*Q = (1 + up/100)*(CF + CVu*Q)
-    # Q*(PV - (1+up/100)*CVu) = (1+up/100)*CF
-    factor = 1 + up / 100
-    denom  = pv - factor * cvu
-    q_up   = (factor * cf / denom) if denom != 0 else float("inf")
+    # Q*(PV - (1+ up/100)*CVu) = (1+up/100)*CF
+    
+    def calcular_utilidad_porcentaje_ingresado(cfs, pv, cvu, utilidad):
+        denom = (pv - (1 + utilidad/100) * cvu)
+        return ((1+ utilidad/100) * cfs) / denom if denom != 0 else float("inf")
+    
+    q_up = calcular_utilidad_porcentaje_ingresado(cf, pv, cvu, up)
 
     return {
         "cvu":          cvu,
@@ -145,18 +168,18 @@ def calcular_equilibrio(datos: dict) -> dict:
 # =============================================================================
 # WIDGET DEL GRÁFICO
 # =============================================================================
-
+ 
 class GraficoCanvas(FigureCanvas):
     def __init__(self, parent=None):
         self.fig = Figure(figsize=(7, 4.5), facecolor="#1a1d2e")
         super().__init__(self.fig)
         self.setParent(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
+ 
     def actualizar(self, datos: dict, res: dict):
         self.fig.clear()
         ax = self.fig.add_subplot(111, facecolor="#12152a")
-
+ 
         pv  = datos["precio_venta"]
         vp  = datos["ventas_presupuestadas"]
         qe  = res["qe"]
@@ -164,15 +187,15 @@ class GraficoCanvas(FigureCanvas):
         cf  = res["cf"]
         cvu = res["cvu"]
         un  = datos["unidad"]
-
+ 
         q_max = max(vp * 1.25, qe * 1.4, 50)
         q = np.linspace(0, q_max, 400)
-
+ 
         ingresos       = pv  * q
         costos_totales = cf  + cvu * q
         costos_var     = cvu * q
         costos_fijos_l = np.full_like(q, cf)
-
+ 
         # Colores
         C_ING  = "#4fc3f7"
         C_CT   = "#ef5350"
@@ -180,33 +203,33 @@ class GraficoCanvas(FigureCanvas):
         C_CF   = "#ab47bc"
         C_LOSS = "#ef5350"
         C_GAIN = "#66bb6a"
-
+ 
         ax.plot(q, ingresos,       color=C_ING,  lw=2.5, label="Ingresos Totales")
         ax.plot(q, costos_totales, color=C_CT,   lw=2.5, label="Costos Totales")
         ax.plot(q, costos_var,     color=C_CV,   lw=1.8, ls="--", label="Costos Variables")
         ax.plot(q, costos_fijos_l, color=C_CF,   lw=1.8, ls=":",  label="Costos Fijos")
-
+ 
         ax.fill_between(q, ingresos, costos_totales,
                         where=(costos_totales > ingresos),
                         color=C_LOSS, alpha=0.18, label="Zona de pérdidas")
         ax.fill_between(q, ingresos, costos_totales,
                         where=(ingresos >= costos_totales),
                         color=C_GAIN, alpha=0.18, label="Zona de ganancias")
-
+ 
         ax.scatter([qe], [ve], color="white", s=120, zorder=6, edgecolors=C_ING, lw=2)
         ax.axvline(qe, ls="--", color="white", lw=1, alpha=0.5)
         ax.axhline(ve, ls="--", color="white", lw=1, alpha=0.5)
-
+ 
         ax.annotate(
             f"  PE: {qe:.1f} {un}s\n  ${ve:,.0f}",
             xy=(qe, ve), xytext=(qe + q_max * 0.03, ve * 0.92),
             color="white", fontsize=9,
             arrowprops=dict(arrowstyle="->", color="white", lw=1),
         )
-
+ 
         # Ventas presupuestadas
         ax.axvline(vp, ls="-.", color="#ffd54f", lw=1.2, alpha=0.7, label=f"Vtas. presup. ({vp})")
-
+ 
         ax.set_title(f"Punto de Equilibrio — {datos['descripcion']}",
                      color="white", fontsize=12, pad=10)
         ax.set_xlabel(f"Cantidad ({un}s)", color="#aab4c8", fontsize=10)
@@ -214,29 +237,29 @@ class GraficoCanvas(FigureCanvas):
         ax.tick_params(colors="#aab4c8", labelsize=8)
         for sp in ax.spines.values():
             sp.set_edgecolor("#2a2d42")
-
+ 
         fmt = mticker.FuncFormatter(lambda x, _: f"${x:,.0f}")
         ax.yaxis.set_major_formatter(fmt)
-
+ 
         ax.legend(facecolor="#1a1d2e", edgecolor="#3a3d52",
                   labelcolor="white", fontsize=8, loc="upper left")
         ax.grid(color="#2a2d42", lw=0.7)
-
+ 
         self.fig.tight_layout()
         self.draw()
-
-
+ 
+ 
 # =============================================================================
 # VENTANA PRINCIPAL
 # =============================================================================
-
+ 
 STYLE = """
 QMainWindow, QWidget {
     background-color: #12152a;
     color: #e0e6f0;
     font-family: "Segoe UI", "Ubuntu", sans-serif;
 }
-
+ 
 QGroupBox {
     border: 1px solid #2a2d42;
     border-radius: 8px;
@@ -253,7 +276,7 @@ QGroupBox::title {
     padding: 0 6px;
     left: 10px;
 }
-
+ 
 QLabel {
     color: #c8d4ec;
 }
@@ -282,7 +305,7 @@ QLabel#seccion {
     font-weight: bold;
     letter-spacing: 1.5px;
 }
-
+ 
 /* Tabla */
 QTableWidget {
     background-color: #1a1d2e;
@@ -308,7 +331,7 @@ QHeaderView::section {
     font-size: 11px;
     letter-spacing: 0.5px;
 }
-
+ 
 /* Barra inferior de ejemplos */
 QFrame#barra_ejemplos {
     background-color: #0d0f1f;
@@ -341,7 +364,7 @@ QPushButton#btn_ejemplo_activo {
     letter-spacing: 0.5px;
     min-width: 100px;
 }
-
+ 
 QScrollArea { border: none; }
 QScrollBar:vertical {
     background: #1a1d2e;
@@ -354,15 +377,15 @@ QScrollBar::handle:vertical {
 }
 QSplitter::handle { background-color: #2a2d42; }
 """
-
-
+ 
+ 
 def hacer_label(texto, obj_name=""):
     lbl = QLabel(texto)
     if obj_name:
         lbl.setObjectName(obj_name)
     return lbl
-
-
+ 
+ 
 class VentanaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -370,13 +393,13 @@ class VentanaPrincipal(QMainWindow):
         self.setMinimumSize(1100, 680)
         self.resize(1280, 760)
         self.setStyleSheet(STYLE)
-
+ 
         self.ejemplo_actual = list(EJEMPLOS.keys())[0]
         self.botones_ejemplo = {}
-
+ 
         self._construir_ui()
         self._cargar_ejemplo(self.ejemplo_actual)
-
+ 
     # ------------------------------------------------------------------
     def _construir_ui(self):
         central = QWidget()
@@ -384,52 +407,52 @@ class VentanaPrincipal(QMainWindow):
         root_layout = QVBoxLayout(central)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
-
+ 
         # ---- Header ----
         header = QFrame()
         header.setFixedHeight(64)
         header.setStyleSheet("background-color:#0d0f1f; border-bottom:1px solid #2a2d42;")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(24, 0, 24, 0)
-
+ 
         titulo = QLabel("⚖  ANÁLISIS DE PUNTO DE EQUILIBRIO")
         titulo.setObjectName("titulo_app")
         sub = QLabel("Herramienta de costeo y decisión empresarial")
         sub.setObjectName("subtitulo")
         sub.setAlignment(Qt.AlignBottom)
-
+ 
         hl.addWidget(titulo)
         hl.addSpacing(20)
         hl.addWidget(sub)
         hl.addStretch()
-
+ 
         root_layout.addWidget(header)
-
+ 
         # ---- Cuerpo principal ----
         splitter = QSplitter(Qt.Horizontal)
         splitter.setHandleWidth(2)
-
+ 
         # Panel izquierdo: datos
         self.panel_datos = self._crear_panel_datos()
         splitter.addWidget(self.panel_datos)
-
+ 
         # Panel derecho: resultados + gráfico
         panel_der = QWidget()
         pd_layout = QVBoxLayout(panel_der)
         pd_layout.setContentsMargins(12, 12, 16, 12)
         pd_layout.setSpacing(10)
-
+ 
         self.tabla_resultados = self._crear_tabla()
         pd_layout.addWidget(self.tabla_resultados, stretch=0)
-
+ 
         self.canvas = GraficoCanvas()
         pd_layout.addWidget(self.canvas, stretch=1)
-
+ 
         splitter.addWidget(panel_der)
         splitter.setSizes([340, 780])
-
+ 
         root_layout.addWidget(splitter, stretch=1)
-
+ 
         # ---- Barra inferior de ejemplos ----
         barra = QFrame()
         barra.setObjectName("barra_ejemplos")
@@ -437,12 +460,12 @@ class VentanaPrincipal(QMainWindow):
         bl = QHBoxLayout(barra)
         bl.setContentsMargins(20, 10, 20, 10)
         bl.setSpacing(12)
-
+ 
         etiqueta = QLabel("EJEMPLOS:")
         etiqueta.setObjectName("seccion")
         etiqueta.setAlignment(Qt.AlignVCenter)
         bl.addWidget(etiqueta)
-
+ 
         for nombre in EJEMPLOS:
             btn = QPushButton(nombre)
             btn.setObjectName("btn_ejemplo")
@@ -450,22 +473,22 @@ class VentanaPrincipal(QMainWindow):
             btn.clicked.connect(lambda checked, n=nombre: self._cargar_ejemplo(n))
             bl.addWidget(btn)
             self.botones_ejemplo[nombre] = btn
-
+ 
         bl.addStretch()
         root_layout.addWidget(barra)
-
+ 
     # ------------------------------------------------------------------
     def _crear_panel_datos(self) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFixedWidth(330)
-
+ 
         contenedor = QWidget()
         contenedor.setStyleSheet("background-color:#12152a;")
         layout = QVBoxLayout(contenedor)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
-
+ 
         # Descripción del ejemplo
         grp_desc = QGroupBox("EMPRESA / PRODUCTO")
         gl = QVBoxLayout(grp_desc)
@@ -474,7 +497,7 @@ class VentanaPrincipal(QMainWindow):
         self.lbl_descripcion.setStyleSheet("color:#c8d4ec; font-size:12px;")
         gl.addWidget(self.lbl_descripcion)
         layout.addWidget(grp_desc)
-
+ 
         # Precio de venta
         grp_pv = QGroupBox("PRECIO DE VENTA")
         pvl = QVBoxLayout(grp_pv)
@@ -483,39 +506,39 @@ class VentanaPrincipal(QMainWindow):
         self.lbl_pv.setStyleSheet("color:#4fc3f7; font-size:16px; font-weight:bold;")
         pvl.addWidget(self.lbl_pv)
         layout.addWidget(grp_pv)
-
+ 
         # Costos variables
         grp_cv = QGroupBox("COSTOS VARIABLES UNITARIOS")
         self.cv_layout = QGridLayout(grp_cv)
         self.cv_layout.setHorizontalSpacing(10)
         self.cv_layout.setVerticalSpacing(4)
         layout.addWidget(grp_cv)
-
+ 
         # Costos fijos
         grp_cf = QGroupBox("COSTOS FIJOS")
         self.cf_layout = QGridLayout(grp_cf)
         self.cf_layout.setHorizontalSpacing(10)
         self.cf_layout.setVerticalSpacing(4)
         layout.addWidget(grp_cf)
-
+ 
         # Parámetros adicionales
         grp_par = QGroupBox("PARÁMETROS")
         parl = QGridLayout(grp_par)
         parl.setHorizontalSpacing(10)
         parl.setVerticalSpacing(4)
-
+ 
         self.lbl_vp_l  = QLabel("Ventas presupuestadas:")
         self.lbl_vp_v  = QLabel()
         self.lbl_ud_l  = QLabel("Utilidad deseada:")
         self.lbl_ud_v  = QLabel()
         self.lbl_up_l  = QLabel("Utilidad % sobre costos:")
         self.lbl_up_v  = QLabel()
-
+ 
         for lbl in (self.lbl_vp_l, self.lbl_ud_l, self.lbl_up_l):
             lbl.setObjectName("dato_label")
         for lbl in (self.lbl_vp_v, self.lbl_ud_v, self.lbl_up_v):
             lbl.setObjectName("dato_valor")
-
+ 
         parl.addWidget(self.lbl_vp_l, 0, 0)
         parl.addWidget(self.lbl_vp_v, 0, 1)
         parl.addWidget(self.lbl_ud_l, 1, 0)
@@ -523,11 +546,46 @@ class VentanaPrincipal(QMainWindow):
         parl.addWidget(self.lbl_up_l, 2, 0)
         parl.addWidget(self.lbl_up_v, 2, 1)
         layout.addWidget(grp_par)
-
+ 
+        # ── Resumen de cálculo ──────────────────────────────────────────
+        grp_res = QGroupBox("RESUMEN DE CÁLCULO")
+        resl = QGridLayout(grp_res)
+        resl.setHorizontalSpacing(10)
+        resl.setVerticalSpacing(6)
+ 
+        def _fila_resumen(grid, row, etiqueta, attr_val, color_val="#e0e6f0"):
+            lbl_e = QLabel(etiqueta)
+            lbl_e.setObjectName("dato_label")
+            lbl_v = QLabel()
+            lbl_v.setObjectName("dato_valor")
+            lbl_v.setAlignment(Qt.AlignRight)
+            lbl_v.setStyleSheet(f"color:{color_val}; font-size:12px; font-weight:bold;")
+            grid.addWidget(lbl_e, row, 0)
+            grid.addWidget(lbl_v, row, 1)
+            return lbl_v
+ 
+        # Separador visual dentro del grupo
+        def _sep(grid, row, texto):
+            lbl = QLabel(texto)
+            lbl.setStyleSheet(
+                "color:#4fc3f7; font-size:9px; font-weight:bold; "
+                "letter-spacing:1px; padding-top:6px;"
+            )
+            grid.addWidget(lbl, row, 0, 1, 2)
+ 
+        _sep(resl, 0, "COSTOS")
+        self.res_cvu  = _fila_resumen(resl, 1, "Costo variable unitario:",  "cvu",  "#ffa726")
+        self.res_cf   = _fila_resumen(resl, 2, "Costos fijos totales:",      "cf",   "#ab47bc")
+        _sep(resl, 3, "MARGEN DE CONTRIBUCIÓN")
+        self.res_mcu  = _fila_resumen(resl, 4, "Margen contribución unit.:", "mcu",  "#66bb6a")
+        self.res_mpct = _fila_resumen(resl, 5, "Margen contribución %:",     "mpct", "#66bb6a")
+ 
+        layout.addWidget(grp_res)
+ 
         layout.addStretch()
         scroll.setWidget(contenedor)
         return scroll
-
+ 
     # ------------------------------------------------------------------
     def _crear_tabla(self) -> QTableWidget:
         tabla = QTableWidget()
@@ -539,9 +597,9 @@ class VentanaPrincipal(QMainWindow):
         tabla.setAlternatingRowColors(True)
         tabla.setEditTriggers(QTableWidget.NoEditTriggers)
         tabla.setSelectionBehavior(QTableWidget.SelectRows)
-        tabla.setFixedHeight(280)
+        tabla.setFixedHeight(220)
         return tabla
-
+ 
     # ------------------------------------------------------------------
     def _limpiar_grid(self, grid: QGridLayout):
         while grid.count():
@@ -549,7 +607,7 @@ class VentanaPrincipal(QMainWindow):
             w = item.widget()
             if w:
                 w.deleteLater()
-
+ 
     # ------------------------------------------------------------------
     def _poblar_grid(self, grid: QGridLayout, items: dict):
         self._limpiar_grid(grid)
@@ -561,18 +619,14 @@ class VentanaPrincipal(QMainWindow):
             lbl_v.setAlignment(Qt.AlignRight)
             grid.addWidget(lbl_c, fila, 0)
             grid.addWidget(lbl_v, fila, 1)
-
+ 
     # ------------------------------------------------------------------
     def _poblar_tabla(self, datos: dict, res: dict):
         un = datos["unidad"]
         up = datos["utilidad_pct_costos"]
         ud = datos["utilidad_deseada"]
-
+ 
         filas = [
-            ("Costo variable unitario",                         f"${res['cvu']:,.2f}",     False),
-            ("Costos fijos totales",                            f"${res['cf']:,.2f}",      False),
-            ("Margen de contribución unitario",                 f"${res['mcu']:,.2f}",     False),
-            ("Margen de contribución %",                        f"{res['mcu_pct']*100:.2f}%", False),
             ("── PUNTO DE EQUILIBRIO ──",                       "",                        True),
             (f"Cantidad ({un}s)",                               f"{res['qe']:.2f}",        False),
             ("Ventas ($)",                                      f"${res['ve']:,.2f}",      False),
@@ -584,13 +638,13 @@ class VentanaPrincipal(QMainWindow):
             (f"{un.capitalize()}s para utilidad de ${ud:,.0f}", f"{res['q_ud']:.2f}",     False),
             (f"{un.capitalize()}s para utilidad {up}% sobre CT",f"{res['q_up']:.2f}",     False),
         ]
-
+ 
         self.tabla_resultados.setRowCount(len(filas))
         for row, (concepto, valor, es_header) in enumerate(filas):
             item_c = QTableWidgetItem(concepto)
             item_v = QTableWidgetItem(valor)
             item_v.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
+ 
             if es_header:
                 font = QFont()
                 font.setBold(True)
@@ -600,12 +654,12 @@ class VentanaPrincipal(QMainWindow):
                 item_c.setBackground(color)
                 item_v.setBackground(color)
                 item_c.setForeground(QColor("#4fc3f7"))
-
+ 
             self.tabla_resultados.setItem(row, 0, item_c)
             self.tabla_resultados.setItem(row, 1, item_v)
-
+ 
         self.tabla_resultados.resizeRowsToContents()
-
+ 
     # ------------------------------------------------------------------
     def _actualizar_botones(self, activo: str):
         for nombre, btn in self.botones_ejemplo.items():
@@ -614,14 +668,14 @@ class VentanaPrincipal(QMainWindow):
             else:
                 btn.setObjectName("btn_ejemplo")
             btn.setStyle(btn.style())   # fuerza recarga de estilo
-
+ 
     # ------------------------------------------------------------------
     def _cargar_ejemplo(self, nombre: str):
         self.ejemplo_actual = nombre
         datos = EJEMPLOS[nombre]
         res   = calcular_equilibrio(datos)
         un    = datos["unidad"]
-
+ 
         # Panel de datos
         self.lbl_descripcion.setText(datos["descripcion"])
         self.lbl_pv.setText(f"${datos['precio_venta']:,.2f} / {un}")
@@ -630,26 +684,32 @@ class VentanaPrincipal(QMainWindow):
         self.lbl_vp_v.setText(f"{datos['ventas_presupuestadas']} {un}s")
         self.lbl_ud_v.setText(f"${datos['utilidad_deseada']:,.0f}")
         self.lbl_up_v.setText(f"{datos['utilidad_pct_costos']}%")
-
+ 
         # Tabla y gráfico
         self._poblar_tabla(datos, res)
         self.canvas.actualizar(datos, res)
-
+ 
+        # Resumen de cálculo (panel izquierdo)
+        self.res_cvu.setText(f"${res['cvu']:,.2f}")
+        self.res_cf.setText(f"${res['cf']:,.2f}")
+        self.res_mcu.setText(f"${res['mcu']:,.2f}")
+        self.res_mpct.setText(f"{res['mcu_pct']*100:.2f}%")
+ 
         # Botones
         self._actualizar_botones(nombre)
-
+ 
         # Título de ventana
         self.setWindowTitle(f"Punto de Equilibrio — {datos['descripcion']}")
-
-
+ 
+ 
 # =============================================================================
 # MAIN
 # =============================================================================
-
+ 
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-
+ 
     # Paleta oscura base para que los diálogos del sistema respeten el tema
     palette = QPalette()
     palette.setColor(QPalette.Window,        QColor("#12152a"))
@@ -660,11 +720,11 @@ def main():
     palette.setColor(QPalette.Button,        QColor("#1a1d2e"))
     palette.setColor(QPalette.ButtonText,    QColor("#e0e6f0"))
     app.setPalette(palette)
-
+ 
     ventana = VentanaPrincipal()
     ventana.show()
     sys.exit(app.exec())
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
