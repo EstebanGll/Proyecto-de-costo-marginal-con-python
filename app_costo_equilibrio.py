@@ -128,11 +128,13 @@ def calcular_equilibrio(datos: dict) -> dict:
     
 
     # Punto de cierre (sin amortizaciones)
-    amort        = cfs.get("Amortizaciones", 
-                           cfs.get("Amortización horno", 
-                                   cfs.get("Amortiz. impresoras", 0)
-                                )
-                        )
+    def obtener_amortizacion(datos):
+        for clave, valor in datos.items():
+            if clave.startswith("Amortiz"):
+                return valor
+        return 0
+    
+    amort = cfs.get("Amortizaciones", obtener_amortizacion(cfs))
 
     punto_cierre = (cf - amort) / mcu
 
@@ -140,13 +142,15 @@ def calcular_equilibrio(datos: dict) -> dict:
     q_ud = (cf + ud) / mcu
 
 
-    # Cantidad para utilidad % sobre costos
-    # PV*Q = (1 + up/100)*(CF + CVu*Q)
-    # Q*(PV - (1+ up/100)*CVu) = (1+up/100)*CF
+    # Utilidad del n% sobre costos totales:
+    # PV*Q = CT + n% CT
+    # PV*Q = 1.n * (CF + CVu*Q)
+    # PV*Q - 1.n*CVu*Q = 1.n*CF
+    # Q = 1.n*CF / (PV - 1.n*CVu)
     
     def calcular_utilidad_porcentaje_ingresado(cfs, pv, cvu, utilidad):
         denom = (pv - (1 + utilidad/100) * cvu)
-        return ((1+ utilidad/100) * cfs) / denom if denom != 0 else float("inf")
+        return ((1+ utilidad/100) * cfs) / denom
     
     q_up = calcular_utilidad_porcentaje_ingresado(cf, pv, cvu, up)
 
@@ -171,14 +175,14 @@ def calcular_equilibrio(datos: dict) -> dict:
  
 class GraficoCanvas(FigureCanvas):
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(7, 4.5), facecolor="#1a1d2e")
+        self.fig = Figure(figsize=(7, 4.5), facecolor="#ffffff")
         super().__init__(self.fig)
         self.setParent(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
  
     def actualizar(self, datos: dict, res: dict):
         self.fig.clear()
-        ax = self.fig.add_subplot(111, facecolor="#12152a")
+        ax = self.fig.add_subplot(111, facecolor="#f8f9fc")
  
         pv  = datos["precio_venta"]
         vp  = datos["ventas_presupuestadas"]
@@ -196,54 +200,58 @@ class GraficoCanvas(FigureCanvas):
         costos_var     = cvu * q
         costos_fijos_l = np.full_like(q, cf)
  
-        # Colores
-        C_ING  = "#4fc3f7"
-        C_CT   = "#ef5350"
-        C_CV   = "#ffa726"
-        C_CF   = "#ab47bc"
-        C_LOSS = "#ef5350"
-        C_GAIN = "#66bb6a"
+        # Paleta Power BI
+        C_ING  = "#118DFF"   # azul Power BI
+        C_CT   = "#E6445A"   # rojo vibrante
+        C_CV   = "#F2BC00"   # amarillo dorado
+        C_CF   = "#8B4FD8"   # violeta medio
+        C_LOSS = "#E6445A"
+        C_GAIN = "#12B76A"   # verde esmeralda
  
-        ax.plot(q, ingresos,       color=C_ING,  lw=2.5, label="Ingresos Totales")
-        ax.plot(q, costos_totales, color=C_CT,   lw=2.5, label="Costos Totales")
-        ax.plot(q, costos_var,     color=C_CV,   lw=1.8, ls="--", label="Costos Variables")
-        ax.plot(q, costos_fijos_l, color=C_CF,   lw=1.8, ls=":",  label="Costos Fijos")
+        ax.plot(q, ingresos,       color=C_ING,  lw=2.8, label="Ingresos Totales")
+        ax.plot(q, costos_totales, color=C_CT,   lw=2.8, label="Costos Totales")
+        ax.plot(q, costos_var,     color=C_CV,   lw=2.0, ls="--", label="Costos Variables")
+        ax.plot(q, costos_fijos_l, color=C_CF,   lw=2.0, ls=":",  label="Costos Fijos")
  
         ax.fill_between(q, ingresos, costos_totales,
                         where=(costos_totales > ingresos),
-                        color=C_LOSS, alpha=0.18, label="Zona de pérdidas")
+                        color=C_LOSS, alpha=0.10, label="Zona de pérdidas")
         ax.fill_between(q, ingresos, costos_totales,
                         where=(ingresos >= costos_totales),
-                        color=C_GAIN, alpha=0.18, label="Zona de ganancias")
+                        color=C_GAIN, alpha=0.12, label="Zona de ganancias")
  
-        ax.scatter([qe], [ve], color="white", s=120, zorder=6, edgecolors=C_ING, lw=2)
-        ax.axvline(qe, ls="--", color="white", lw=1, alpha=0.5)
-        ax.axhline(ve, ls="--", color="white", lw=1, alpha=0.5)
+        ax.scatter([qe], [ve], color="#F2BC00", s=140, zorder=6,
+                   edgecolors="#1a1a2e", lw=1.5)
+        ax.axvline(qe, ls="--", color="#555770", lw=1, alpha=0.6)
+        ax.axhline(ve, ls="--", color="#555770", lw=1, alpha=0.6)
  
         ax.annotate(
             f"  PE: {qe:.1f} {un}s\n  ${ve:,.0f}",
-            xy=(qe, ve), xytext=(qe + q_max * 0.03, ve * 0.92),
-            color="white", fontsize=9,
-            arrowprops=dict(arrowstyle="->", color="white", lw=1),
+            xy=(qe, ve), xytext=(qe + q_max * 0.03, ve * 0.90),
+            color="#1a1a2e", fontsize=9, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="#dddddd", lw=1),
+            arrowprops=dict(arrowstyle="->", color="#555770", lw=1.2),
         )
  
         # Ventas presupuestadas
-        ax.axvline(vp, ls="-.", color="#ffd54f", lw=1.2, alpha=0.7, label=f"Vtas. presup. ({vp})")
+        ax.axvline(vp, ls="-.", color="#F2BC00", lw=1.6, alpha=0.9,
+                   label=f"Vtas. presup. ({vp})")
  
         ax.set_title(f"Punto de Equilibrio — {datos['descripcion']}",
-                     color="white", fontsize=12, pad=10)
-        ax.set_xlabel(f"Cantidad ({un}s)", color="#aab4c8", fontsize=10)
-        ax.set_ylabel("Pesos ($)", color="#aab4c8", fontsize=10)
-        ax.tick_params(colors="#aab4c8", labelsize=8)
+                     color="#1a1a2e", fontsize=12, fontweight="bold", pad=12)
+        ax.set_xlabel(f"Cantidad ({un}s)", color="#555770", fontsize=10)
+        ax.set_ylabel("Pesos ($)", color="#555770", fontsize=10)
+        ax.tick_params(colors="#555770", labelsize=8)
         for sp in ax.spines.values():
-            sp.set_edgecolor("#2a2d42")
+            sp.set_edgecolor("#e0e0e8")
  
         fmt = mticker.FuncFormatter(lambda x, _: f"${x:,.0f}")
         ax.yaxis.set_major_formatter(fmt)
  
-        ax.legend(facecolor="#1a1d2e", edgecolor="#3a3d52",
-                  labelcolor="white", fontsize=8, loc="upper left")
-        ax.grid(color="#2a2d42", lw=0.7)
+        ax.legend(facecolor="white", edgecolor="#e0e0e8",
+                  labelcolor="#1a1a2e", fontsize=8, loc="upper left",
+                  framealpha=1)
+        ax.grid(color="#e8e8f0", lw=0.8, linestyle="-")
  
         self.fig.tight_layout()
         self.draw()
@@ -255,20 +263,21 @@ class GraficoCanvas(FigureCanvas):
  
 STYLE = """
 QMainWindow, QWidget {
-    background-color: #12152a;
-    color: #e0e6f0;
+    background-color: #f3f4f8;
+    color: #1a1a2e;
     font-family: "Segoe UI", "Ubuntu", sans-serif;
 }
  
 QGroupBox {
-    border: 1px solid #2a2d42;
+    border: 1px solid #dde1ed;
     border-radius: 8px;
     margin-top: 14px;
     padding: 10px 8px 8px 8px;
     font-weight: bold;
-    color: #7b93c8;
-    font-size: 11px;
+    color: #7b8ab8;
+    font-size: 10px;
     letter-spacing: 1px;
+    background-color: #ffffff;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
@@ -278,29 +287,27 @@ QGroupBox::title {
 }
  
 QLabel {
-    color: #c8d4ec;
+    color: #1a1a2e;
+    background-color: transparent;
 }
 QLabel#titulo_app {
-    color: #4fc3f7;
-    font-size: 20px;
+    color: #0A0A0A;
+    font-size: 18px;
     font-weight: bold;
     letter-spacing: 2px;
 }
-QLabel#subtitulo {
-    color: #7b93c8;
-    font-size: 11px;
-}
+
 QLabel#dato_label {
-    color: #7b93c8;
+    color: #6b7280;
     font-size: 11px;
 }
 QLabel#dato_valor {
-    color: #e0e6f0;
+    color: #1a1a2e;
     font-size: 12px;
     font-weight: bold;
 }
 QLabel#seccion {
-    color: #4fc3f7;
+    color: #F2BC00;
     font-size: 10px;
     font-weight: bold;
     letter-spacing: 1.5px;
@@ -308,24 +315,24 @@ QLabel#seccion {
  
 /* Tabla */
 QTableWidget {
-    background-color: #1a1d2e;
-    alternate-background-color: #1e2238;
-    gridline-color: #2a2d42;
-    border: none;
+    background-color: #ffffff;
+    alternate-background-color: #f8f9fc;
+    gridline-color: #eaedf5;
+    border: 1px solid #dde1ed;
     border-radius: 6px;
-    color: #e0e6f0;
+    color: #1a1a2e;
     font-size: 11px;
 }
 QTableWidget::item { padding: 6px 10px; }
 QTableWidget::item:selected {
-    background-color: #2a3d6e;
-    color: white;
+    background-color: #dbeafe;
+    color: #1a1a2e;
 }
 QHeaderView::section {
-    background-color: #1a1d2e;
-    color: #7b93c8;
+    background-color: #f3f4f8;
+    color: #7b8ab8;
     border: none;
-    border-bottom: 1px solid #2a2d42;
+    border-bottom: 2px solid #dde1ed;
     padding: 8px 10px;
     font-weight: bold;
     font-size: 11px;
@@ -334,13 +341,13 @@ QHeaderView::section {
  
 /* Barra inferior de ejemplos */
 QFrame#barra_ejemplos {
-    background-color: #0d0f1f;
-    border-top: 1px solid #2a2d42;
+    background-color: #ffffff;
+    border-top: 2px solid #F2BC00;
 }
 QPushButton#btn_ejemplo {
-    background-color: #1a1d2e;
-    color: #7b93c8;
-    border: 1px solid #2a2d42;
+    background-color: #f3f4f8;
+    color: #6b7280;
+    border: 1px solid #dde1ed;
     border-radius: 8px;
     padding: 10px 18px;
     font-size: 11px;
@@ -349,14 +356,14 @@ QPushButton#btn_ejemplo {
     min-width: 100px;
 }
 QPushButton#btn_ejemplo:hover {
-    background-color: #2a3050;
-    color: #4fc3f7;
-    border-color: #4fc3f7;
+    background-color: #dbeafe;
+    color: #118DFF;
+    border-color: #118DFF;
 }
 QPushButton#btn_ejemplo_activo {
-    background-color: #1d3a6e;
-    color: #4fc3f7;
-    border: 1.5px solid #4fc3f7;
+    background-color: #118DFF;
+    color: #ffffff;
+    border: 1.5px solid #118DFF;
     border-radius: 8px;
     padding: 10px 18px;
     font-size: 11px;
@@ -365,17 +372,17 @@ QPushButton#btn_ejemplo_activo {
     min-width: 100px;
 }
  
-QScrollArea { border: none; }
+QScrollArea { border: none; background-color: #f3f4f8; }
 QScrollBar:vertical {
-    background: #1a1d2e;
+    background: #f3f4f8;
     width: 6px;
     border-radius: 3px;
 }
 QScrollBar::handle:vertical {
-    background: #2a3d6e;
+    background: #c5ccde;
     border-radius: 3px;
 }
-QSplitter::handle { background-color: #2a2d42; }
+QSplitter::handle { background-color: #dde1ed; }
 """
  
  
@@ -411,19 +418,17 @@ class VentanaPrincipal(QMainWindow):
         # ---- Header ----
         header = QFrame()
         header.setFixedHeight(64)
-        header.setStyleSheet("background-color:#0d0f1f; border-bottom:1px solid #2a2d42;")
+        header.setStyleSheet(
+            "background-color: #F29100;"
+            "border-bottom: 3px solid #d4a400;"
+        )
         hl = QHBoxLayout(header)
         hl.setContentsMargins(24, 0, 24, 0)
  
-        titulo = QLabel("⚖  ANÁLISIS DE PUNTO DE EQUILIBRIO")
+        titulo = QLabel("⚖  ANÁLISIS DE PUNTO DE EQUILIBRIO  ·  Herramienta de costeo y decisión empresarial")
         titulo.setObjectName("titulo_app")
-        sub = QLabel("Herramienta de costeo y decisión empresarial")
-        sub.setObjectName("subtitulo")
-        sub.setAlignment(Qt.AlignBottom)
- 
+
         hl.addWidget(titulo)
-        hl.addSpacing(20)
-        hl.addWidget(sub)
         hl.addStretch()
  
         root_layout.addWidget(header)
@@ -484,7 +489,7 @@ class VentanaPrincipal(QMainWindow):
         scroll.setFixedWidth(330)
  
         contenedor = QWidget()
-        contenedor.setStyleSheet("background-color:#12152a;")
+        contenedor.setStyleSheet("background-color:#f3f4f8;")
         layout = QVBoxLayout(contenedor)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
@@ -494,7 +499,7 @@ class VentanaPrincipal(QMainWindow):
         gl = QVBoxLayout(grp_desc)
         self.lbl_descripcion = QLabel()
         self.lbl_descripcion.setWordWrap(True)
-        self.lbl_descripcion.setStyleSheet("color:#c8d4ec; font-size:12px;")
+        self.lbl_descripcion.setStyleSheet("color:#374151; font-size:12px;")
         gl.addWidget(self.lbl_descripcion)
         layout.addWidget(grp_desc)
  
@@ -503,7 +508,7 @@ class VentanaPrincipal(QMainWindow):
         pvl = QVBoxLayout(grp_pv)
         self.lbl_pv = QLabel()
         self.lbl_pv.setObjectName("dato_valor")
-        self.lbl_pv.setStyleSheet("color:#4fc3f7; font-size:16px; font-weight:bold;")
+        self.lbl_pv.setStyleSheet("color:#118DFF; font-size:16px; font-weight:bold;")
         pvl.addWidget(self.lbl_pv)
         layout.addWidget(grp_pv)
  
@@ -568,17 +573,17 @@ class VentanaPrincipal(QMainWindow):
         def _sep(grid, row, texto):
             lbl = QLabel(texto)
             lbl.setStyleSheet(
-                "color:#4fc3f7; font-size:9px; font-weight:bold; "
+                "color:#118DFF; font-size:9px; font-weight:bold; "
                 "letter-spacing:1px; padding-top:6px;"
             )
             grid.addWidget(lbl, row, 0, 1, 2)
  
         _sep(resl, 0, "COSTOS")
-        self.res_cvu  = _fila_resumen(resl, 1, "Costo variable unitario:",  "cvu",  "#ffa726")
-        self.res_cf   = _fila_resumen(resl, 2, "Costos fijos totales:",      "cf",   "#ab47bc")
+        self.res_cvu  = _fila_resumen(resl, 1, "Costo variable unitario:",  "cvu",  "#E67E00")
+        self.res_cf   = _fila_resumen(resl, 2, "Costos fijos totales:",      "cf",   "#8B4FD8")
         _sep(resl, 3, "MARGEN DE CONTRIBUCIÓN")
-        self.res_mcu  = _fila_resumen(resl, 4, "Margen contribución unit.:", "mcu",  "#66bb6a")
-        self.res_mpct = _fila_resumen(resl, 5, "Margen contribución %:",     "mpct", "#66bb6a")
+        self.res_mcu  = _fila_resumen(resl, 4, "Margen contribución unit.:", "mcu",  "#12B76A")
+        self.res_mpct = _fila_resumen(resl, 5, "Margen contribución %:",     "mpct", "#12B76A")
  
         layout.addWidget(grp_res)
  
@@ -650,10 +655,10 @@ class VentanaPrincipal(QMainWindow):
                 font.setBold(True)
                 item_c.setFont(font)
                 item_v.setFont(font)
-                color = QColor("#1d2845")
+                color = QColor("#EFF6FF")
                 item_c.setBackground(color)
                 item_v.setBackground(color)
-                item_c.setForeground(QColor("#4fc3f7"))
+                item_c.setForeground(QColor("#118DFF"))
  
             self.tabla_resultados.setItem(row, 0, item_c)
             self.tabla_resultados.setItem(row, 1, item_v)
@@ -712,13 +717,13 @@ def main():
  
     # Paleta oscura base para que los diálogos del sistema respeten el tema
     palette = QPalette()
-    palette.setColor(QPalette.Window,        QColor("#12152a"))
-    palette.setColor(QPalette.WindowText,    QColor("#e0e6f0"))
-    palette.setColor(QPalette.Base,          QColor("#1a1d2e"))
-    palette.setColor(QPalette.AlternateBase, QColor("#1e2238"))
-    palette.setColor(QPalette.Text,          QColor("#e0e6f0"))
-    palette.setColor(QPalette.Button,        QColor("#1a1d2e"))
-    palette.setColor(QPalette.ButtonText,    QColor("#e0e6f0"))
+    palette.setColor(QPalette.Window,        QColor("#f3f4f8"))
+    palette.setColor(QPalette.WindowText,    QColor("#1a1a2e"))
+    palette.setColor(QPalette.Base,          QColor("#ffffff"))
+    palette.setColor(QPalette.AlternateBase, QColor("#f8f9fc"))
+    palette.setColor(QPalette.Text,          QColor("#1a1a2e"))
+    palette.setColor(QPalette.Button,        QColor("#f3f4f8"))
+    palette.setColor(QPalette.ButtonText,    QColor("#1a1a2e"))
     app.setPalette(palette)
  
     ventana = VentanaPrincipal()
